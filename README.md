@@ -13,8 +13,8 @@ Este repositorio documenta un laboratorio de seguridad de firmware UEFI desarrol
 - [TP2 — Desarrollo, compilación y análisis](#tp2--desarrollo-compilación-y-análisis)
 - [TP3 — Ejecución en hardware físico](#tp3--ejecución-en-hardware-físico)
 - [Resultados](#resultados)
-- [Evidencias](#evidencias)
 - [Consideraciones de seguridad](#consideraciones-de-seguridad)
+- [Referencias](#referencias)
 
 ## Entorno y herramientas
 
@@ -29,38 +29,19 @@ Este repositorio documenta un laboratorio de seguridad de firmware UEFI desarrol
 | Lenovo IdeaPad 5 (x86-64) | Validación en hardware físico |
 | Pendrive FAT32 | Medio de arranque UEFI |
 
-Instalación de dependencias utilizadas:
-
-```bash
-sudo apt update
-sudo apt install -y qemu-system-x86 ovmf gnu-efi build-essential binutils-mingw-w64 dosfstools parted
-```
-
-En este entorno, Ghidra no estaba disponible mediante `apt`, por lo que se instaló con Snap:
-
-```bash
-sudo snap install ghidra --classic
-snap run ghidra
-```
-
-Los archivos GNU-EFI se localizaron en `/usr/lib/`, incluyendo `crt0-efi-x86_64.o`, `elf_x86_64_efi.lds`, `libefi.a` y `libgnuefi.a`.
-
 ## TP1 — Exploración de UEFI y la Shell
 
 **Objetivo:** reconocer la abstracción de dispositivos, los protocolos, las variables de arranque y el mapa de memoria de UEFI.
 
 ### Arranque virtual
 
-Se inició QEMU con firmware OVMF. La instalación utilizada dispone de archivos como `OVMF_CODE_4M.fd` y `OVMF_VARS_4M.fd` en `/usr/share/OVMF/`. Un ejemplo de inicio con firmware separado en código y variables es:
+Se inició QEMU con firmware OVMF y se accedió a la UEFI Interactive Shell. El entorno virtual permitió explorar los servicios del firmware antes de ejecutar la aplicación.
 
-```bash
-qemu-system-x86_64 -m 512 -machine q35 \
-  -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
-  -drive if=pflash,format=raw,file=./OVMF_VARS.fd \
-  -net none
-```
+<p align="center">
+  <img src="src/images/tp1.0.png" alt="UEFI Shell iniciada en QEMU con el mapa de dispositivos" width="850">
+</p>
 
-> Para usar este comando se debe crear previamente una **copia escribible y compatible** de `OVMF_VARS_4M.fd` como `./OVMF_VARS.fd`. No modificar directamente el archivo del sistema.
+*Figura 1. Arranque de la UEFI Shell en QEMU.*
 
 ### Exploración de dispositivos y protocolos
 
@@ -75,6 +56,12 @@ dh -b
 ```
 
 `map` permite visualizar los alias de sistemas de archivos y dispositivos de bloque; `dh` enumera *handles* y protocolos asociados. Para disponer de `FS0:` se utilizó un volumen accesible desde UEFI.
+
+<p align="center">
+  <img src="src/images/tp1.2.png" alt="Listado de handles y protocolos en la UEFI Shell" width="850">
+</p>
+
+*Figura 2. Enumeración de handles y protocolos.*
 
 **Pregunta 1 — ¿Qué ventajas tiene el modelo de handles y protocolos frente al BIOS tradicional?**
 
@@ -91,11 +78,29 @@ set TestSeguridad
 
 Se inspeccionaron variables como `Boot0000`, `Boot0001`, `Boot0002`, `BootOrder` y `BootCurrent`.
 
+<p align="center">
+  <img src="src/images/tp1.2.12.png" alt="Variables Boot0002, Boot0003 y BootCurrent obtenidas con dmpstore" width="850">
+</p>
+
+*Figura 3. Inspección de las variables de arranque.*
+
+<p align="center">
+  <img src="src/images/tp1.2.1.png" alt="Contenido de la variable BootOrder" width="850">
+</p>
+
+*Figura 4. Orden de las opciones de arranque.*
+
 **Pregunta 2 — ¿Cómo determina el Boot Manager la secuencia de arranque?**
 
 `BootOrder` contiene una lista ordenada de identificadores que remiten a variables `Boot####`. Cada entrada describe una opción de arranque, incluido el dispositivo y la ruta del cargador. El firmware intenta las opciones según el orden configurado, sujeto a políticas y condiciones del equipo. `BootCurrent` identifica la opción utilizada en el arranque actual.
 
 > El comando `set` de la Shell gestiona variables de su entorno; no debe confundirse automáticamente con crear una variable global UEFI persistente mediante Runtime Services.
+
+<p align="center">
+  <img src="src/images/tp1.3.png" alt="Creación y consulta de la variable de entorno TestSeguridad" width="850">
+</p>
+
+*Figura 5. Variable de prueba en el entorno de la Shell.*
 
 ### Memoria, PCI y controladores
 
@@ -107,6 +112,30 @@ drivers -b
 
 En QEMU se observaron regiones `BS_Code`, `BS_Data`, `RT_Code`, `RT_Data`, memoria disponible, ACPI y MMIO, junto con dispositivos PCI y controladores UEFI.
 
+<p align="center">
+  <img src="src/images/tp1.4.0.png" alt="Mapa de memoria UEFI obtenido con memmap" width="850">
+</p>
+
+*Figura 6. Mapa de memoria UEFI.*
+
+<p align="center">
+  <img src="src/images/pregunta3.png" alt="Detalle de los tipos de memoria y su distribución" width="850">
+</p>
+
+*Figura 7. Detalle y resumen de las regiones de memoria.*
+
+<p align="center">
+  <img src="src/images/tp1.4.1.png" alt="Dispositivos PCI enumerados en QEMU" width="850">
+</p>
+
+*Figura 8. Enumeración de dispositivos PCI.*
+
+<p align="center">
+  <img src="src/images/tp1.4.2.png" alt="Controladores UEFI enumerados con drivers" width="850">
+</p>
+
+*Figura 9. Controladores disponibles en el entorno virtual.*
+
 **Pregunta 3 — ¿Por qué son sensibles las regiones RuntimeServicesCode?**
 
 Contienen código destinado a seguir disponible para determinados servicios del firmware después de `ExitBootServices()`. Si un atacante consiguiera alterar ese código o sus mecanismos de acceso, podría afectar operaciones privilegiadas del sistema y dificultar la detección de una intrusión. La persistencia y la explotabilidad dependen de la plataforma y de sus protecciones.
@@ -117,7 +146,7 @@ Contienen código destinado a seguir disponible para determinados servicios del 
 
 ### Aplicación en C
 
-Archivo: [`aplicacion.c`](aplicacion.c) (agregarlo al repositorio junto con este README).
+El código de la aplicación utilizada fue el siguiente:
 
 ```c
 #include <efi.h>
@@ -146,7 +175,7 @@ Una aplicación UEFI se ejecuta sin depender de la biblioteca estándar ni de la
 
 ### Compilación
 
-Desde la carpeta del proyecto:
+La aplicación se compiló con GCC y GNU-EFI, se enlazó con `ld` y se convirtió a formato EFI con `objcopy`:
 
 ```bash
 gcc -I/usr/include/efi -I/usr/include/efi/x86_64 \
@@ -166,8 +195,6 @@ objcopy -j .text -j .sdata -j .data -j .rodata \
   --target=efi-app-x86_64 aplicacion.so aplicacion.efi
 ```
 
-**Nota para Fish Shell:** los patrones `'.rel.*'` y `'.rela.*'` deben ir entre comillas para que Fish no intente expandirlos como nombres de archivos.
-
 Verificación:
 
 ```bash
@@ -177,9 +204,21 @@ objdump -x aplicacion.efi
 
 El resultado de `file` confirmó **`PE32+ executable (EFI application) x86-64`**; el ejecutable generado tenía un tamaño aproximado de **5,1 KB**. `readelf -h` no es apropiado para inspeccionar el encabezado del PE/COFF final, porque `readelf` está diseñado para ELF.
 
+<p align="center">
+  <img src="src/images/tp2.0.png" alt="Conversión del ejecutable y verificación de su formato con file" width="850">
+</p>
+
+*Figura 10. Generación y verificación del ejecutable EFI.*
+
 ### Ingeniería inversa con Ghidra
 
 Se importó `aplicacion.efi`, se ejecutó el análisis automático y se localizaron las funciones `entry`, `efi_main`, `efi_call1`, `efi_call2` y `_relocate`. La advertencia de ausencia de un archivo PDB no impidió el análisis.
+
+<p align="center">
+  <img src="src/images/tp2.1.png" alt="Vista de análisis de la aplicación EFI en Ghidra" width="850">
+</p>
+
+*Figura 11. Análisis del ejecutable en Ghidra.*
 
 En el panel **Listing** de `efi_main` se identificaron las instrucciones relevantes:
 
@@ -192,32 +231,27 @@ JNZ    LAB_000020bd
 
 Estas instrucciones almacenan el byte, lo leen con extensión sin signo, lo comparan y saltan si es diferente. El panel **Decompiler** mostró una versión simplificada de `efi_main` con llamadas auxiliares, por lo que fue necesario revisar el ensamblador para confirmar la comparación.
 
+<p align="center">
+  <img src="src/images/tp2.2.png" alt="Ensamblador de efi_main con la comparación del byte 0xCC" width="700">
+</p>
+
+*Figura 12. Instrucciones de efi_main y comparación con 0xCC.*
+
 **Pregunta 5 — ¿Por qué `0xCC` puede aparecer como `-52`?**
 
 El patrón binario `11001100` representa **204** si se interpreta como `unsigned char` y **−52** si se interpreta como `signed char` de 8 bits en complemento a dos. La interpretación de tipos y signos es importante en ingeniería inversa porque afecta la lectura de comparaciones y posibles fallas de seguridad. En este caso se observó `CMP AL,0xCC` en el ensamblador; **no se observó necesariamente `-52` en el pseudocódigo**. Aunque `0xCC` es también el opcode x86 de `INT3`, aquí se utilizó **como dato**, no como una instrucción de breakpoint ejecutada.
 
 ### Prueba en QEMU
 
-Se expuso la carpeta de trabajo como un volumen FAT virtual:
-
-```bash
-qemu-system-x86_64 -m 512 -machine q35 \
-  -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
-  -drive if=pflash,format=raw,file=./OVMF_VARS.fd \
-  -drive file=fat:rw:$HOME/uefi_security_lab,format=raw,if=ide \
-  -net none
-```
-
-En la Shell:
-
-```text
-map -r
-fs0:
-ls
-aplicacion.efi
-```
+Se expuso la carpeta de trabajo como un volumen FAT virtual en QEMU. Desde la UEFI Shell se actualizaron los dispositivos con `map -r`, se accedió a `FS0:` y se ejecutó `aplicacion.efi`.
 
 La aplicación mostró los mensajes previstos, esperó aproximadamente cinco segundos y devolvió el control a la Shell.
+
+<p align="center">
+  <img src="src/images/tp2.4.png" alt="Mensajes de la aplicación EFI ejecutada en QEMU" width="850">
+</p>
+
+*Figura 13. Ejecución de la aplicación en QEMU.*
 
 ## TP3 — Ejecución en hardware físico
 
@@ -236,8 +270,6 @@ USB (FAT32)/
 ```
 
 Se verificaron ambos archivos con `file`: los dos fueron reconocidos como aplicaciones EFI x86-64.
-
-> **Advertencia:** no copiar ciegamente comandos de particionado que utilicen `/dev/sda`: la denominación de los discos cambia entre equipos y formatear el dispositivo equivocado puede destruir datos.
 
 ### Configuración del firmware Lenovo
 
@@ -284,38 +316,9 @@ El retorno al prompt confirma que la aplicación terminó y devolvió el control
 
 **Conclusión:** se verificó el flujo completo desde el desarrollo y la inspección de una aplicación UEFI hasta su ejecución en un firmware real. El experimento permite comprender la interfaz de servicios UEFI, el formato PE/COFF y las diferencias entre un entorno emulado y uno físico. No se explotó ninguna vulnerabilidad ni se ejecutó un breakpoint real.
 
-## Evidencias
-
-Se recomienda agregar las capturas en una carpeta `capturas/` y actualizar los enlaces según sus nombres reales. Ejemplo:
-
-```text
-capturas/
-├── tp1-memmap.png
-├── tp1-pci.png
-├── tp1-drivers.png
-├── tp2-ghidra.png
-├── tp2-qemu.png
-├── tp3-uefi-shell.png
-└── tp3-ejecucion-real.png
-```
-
-Si usás estos nombres, podés habilitar las siguientes imágenes en el README:
-
-<!--
-![TP1: mapa de memoria UEFI](capturas/tp1-memmap.png)
-![TP2: análisis de efi_main en Ghidra](capturas/tp2-ghidra.png)
-![TP2: ejecución en QEMU](capturas/tp2-qemu.png)
-![TP3: UEFI Shell en la Lenovo](capturas/tp3-uefi-shell.png)
-![TP3: ejecución bare metal](capturas/tp3-ejecucion-real.png)
--->
-
 ## Consideraciones de seguridad
 
-- Ejecutar únicamente aplicaciones UEFI propias o de procedencia confiable.
-- Deshabilitar Secure Boot reduce las verificaciones de autenticidad del código de arranque; restaurar la configuración previa al terminar la práctica cuando corresponda.
-- Si el equipo utiliza BitLocker u otro cifrado ligado al estado del firmware, conservar la clave de recuperación antes de cambiar ajustes de arranque.
-- No borrar claves de Secure Boot, modificar el TPM ni alterar particiones del SSD interno para este laboratorio.
-- Las pruebas de firmware deben realizarse con especial cuidado sobre hardware físico.
+La práctica utilizó una aplicación propia y requirió deshabilitar Secure Boot para ejecutar el binario sin firma en el equipo físico. Esta configuración reduce la verificación de autenticidad del código de arranque. El análisis también permitió distinguir las variables del entorno de la Shell de las variables UEFI y reconocer la sensibilidad de las regiones de memoria que contienen servicios de runtime.
 
 ## Referencias
 
