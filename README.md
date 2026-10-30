@@ -33,7 +33,7 @@ Este repositorio documenta un laboratorio de seguridad de firmware UEFI desarrol
 
 **Objetivo:** reconocer la abstracción de dispositivos, los protocolos, las variables de arranque y el mapa de memoria de UEFI.
 
-### Arranque virtual
+### 1.1 Arranque en el entorno virtual
 
 Se inició QEMU con firmware OVMF y se accedió a la UEFI Interactive Shell. El entorno virtual permitió explorar los servicios del firmware antes de ejecutar la aplicación.
 
@@ -43,7 +43,7 @@ Se inició QEMU con firmware OVMF y se accedió a la UEFI Interactive Shell. El 
 
 *Figura 1. Arranque de la UEFI Shell en QEMU.*
 
-### Exploración de dispositivos y protocolos
+### 1.2 Exploración de dispositivos y protocolos
 
 En la UEFI Shell se ejecutaron:
 
@@ -67,7 +67,7 @@ dh -b
 
 El modelo desacopla las aplicaciones de direcciones o puertos de hardware fijos y facilita la interoperabilidad entre distintos controladores y dispositivos. Además, ofrece interfaces estandarizadas que permiten delimitar qué servicios utiliza una aplicación. **No constituye por sí solo una barrera de seguridad:** la confianza en los controladores y el firmware sigue siendo fundamental.
 
-### Variables de arranque y NVRAM
+### 1.3 Variables de arranque y NVRAM
 
 ```text
 dmpstore
@@ -102,7 +102,7 @@ Se inspeccionaron variables como `Boot0000`, `Boot0001`, `Boot0002`, `BootOrder`
 
 *Figura 5. Variable de prueba en el entorno de la Shell.*
 
-### Memoria, PCI y controladores
+### 1.4 Memoria, PCI y controladores
 
 ```text
 memmap -b
@@ -144,7 +144,7 @@ Contienen código destinado a seguir disponible para determinados servicios del 
 
 **Objetivo:** generar un ejecutable nativo UEFI en formato PE/COFF y relacionar el código fuente con su representación ensamblador.
 
-### Aplicación en C
+### 2.1 Desarrollo de la aplicación en C
 
 El código de la aplicación utilizada fue el siguiente:
 
@@ -173,7 +173,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
 
 Una aplicación UEFI se ejecuta sin depender de la biblioteca estándar ni de la consola de un sistema operativo. `ConOut->OutputString` es el servicio de salida de texto provisto por UEFI. GNU-EFI también ofrece funciones auxiliares como `Print`, pero el uso directo del protocolo permite observar la interfaz del firmware.
 
-### Compilación
+### 2.2 Compilación a formato PE/COFF
 
 La aplicación se compiló con GCC y GNU-EFI, se enlazó con `ld` y se convirtió a formato EFI con `objcopy`:
 
@@ -195,7 +195,9 @@ objcopy -j .text -j .sdata -j .data -j .rodata \
   --target=efi-app-x86_64 aplicacion.so aplicacion.efi
 ```
 
-Verificación:
+### 2.3 Análisis de metadatos y descompilación
+
+La verificación del formato se realizó con:
 
 ```bash
 file aplicacion.efi
@@ -210,7 +212,7 @@ El resultado de `file` confirmó **`PE32+ executable (EFI application) x86-64`**
 
 *Figura 10. Generación y verificación del ejecutable EFI.*
 
-### Ingeniería inversa con Ghidra
+#### Ingeniería inversa con Ghidra
 
 Se importó `aplicacion.efi`, se ejecutó el análisis automático y se localizaron las funciones `entry`, `efi_main`, `efi_call1`, `efi_call2` y `_relocate`. La advertencia de ausencia de un archivo PDB no impidió el análisis.
 
@@ -241,7 +243,7 @@ Estas instrucciones almacenan el byte, lo leen con extensión sin signo, lo comp
 
 El patrón binario `11001100` representa **204** si se interpreta como `unsigned char` y **−52** si se interpreta como `signed char` de 8 bits en complemento a dos. La interpretación de tipos y signos es importante en ingeniería inversa porque afecta la lectura de comparaciones y posibles fallas de seguridad. En este caso se observó `CMP AL,0xCC` en el ensamblador; **no se observó necesariamente `-52` en el pseudocódigo**. Aunque `0xCC` es también el opcode x86 de `INT3`, aquí se utilizó **como dato**, no como una instrucción de breakpoint ejecutada.
 
-### Prueba en QEMU
+### 2.4 Ejecución en QEMU
 
 Se expuso la carpeta de trabajo como un volumen FAT virtual en QEMU. Desde la UEFI Shell se actualizaron los dispositivos con `map -r`, se accedió a `FS0:` y se ejecutó `aplicacion.efi`.
 
@@ -257,7 +259,7 @@ La aplicación mostró los mensajes previstos, esperó aproximadamente cinco seg
 
 **Objetivo:** ejecutar el mismo binario UEFI en una computadora real, fuera de QEMU y sin iniciar un sistema operativo.
 
-### Preparación del USB
+### 3.1 Preparación del medio de arranque USB
 
 Se identificó el pendrive con `lsblk` y se preparó una partición FAT32. La estructura utilizada fue:
 
@@ -271,7 +273,7 @@ USB (FAT32)/
 
 Se verificaron ambos archivos con `file`: los dos fueron reconocidos como aplicaciones EFI x86-64.
 
-### Configuración del firmware Lenovo
+### 3.2 Configuración del firmware Lenovo
 
 En la **Lenovo IdeaPad 5** se comprobó que:
 
@@ -281,12 +283,18 @@ En la **Lenovo IdeaPad 5** se comprobó que:
 
 Desde el menú de arranque se seleccionó **EFI USB Device (Generic Flash Disk)**. Se inició la **UEFI Interactive Shell v2.1** sobre firmware UEFI de **Insyde**.
 
-### Ejecución bare metal
+### 3.3 Ejecución bare metal
 
 En el equipo físico, `map -r` mostró:
 
 - **`FS0:`**: volumen del pendrive USB.
 - **`FS1:`**: partición EFI del SSD NVMe interno.
+
+<p align="center">
+  <img src="src/images/tp3.jpeg" alt="UEFI Shell en el equipo físico con el mapa de dispositivos USB y NVMe" width="850">
+</p>
+
+*Figura 14. UEFI Shell v2.1 sobre firmware Insyde y mapa de dispositivos del equipo físico. El pendrive corresponde a FS0: y la partición del NVMe a FS1:.*
 
 Luego se ejecutó:
 
@@ -305,6 +313,12 @@ FS0:\>
 ```
 
 El retorno al prompt confirma que la aplicación terminó y devolvió el control a la Shell.
+
+<p align="center">
+  <img src="src/images/tp3.1.jpeg" alt="Salida de aplicacion.efi en hardware físico con los dos mensajes y el retorno a FS0" width="600">
+</p>
+
+*Figura 15. Ejecución de aplicacion.efi en hardware físico: mensajes previstos y retorno al prompt de la UEFI Shell.*
 
 ## Resultados
 
